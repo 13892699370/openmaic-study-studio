@@ -2,8 +2,39 @@
 import { describe, expect, it } from 'vitest';
 import { isAbortError } from '@openmaic/generation';
 
-import { StepTimeoutError, withDeadline } from '@/lib/server/generation/run/deadline';
+import {
+  StepTimeoutError,
+  resolveStepDeadlines,
+  stepDeadlineEnvName,
+  withDeadline,
+} from '@/lib/server/generation/run/deadline';
 import { withRouteRetry } from '@/lib/server/generation/run/retry';
+
+describe('step deadline budgets', () => {
+  it('gives an interactive scene room for the slow tail, not the median', () => {
+    // Measured: the same scene finished in 224 s one attempt and 400 s+ on
+    // another. A budget under the slow tail fails scenes that would have
+    // succeeded, and a timeout restarts the scene from nothing.
+    expect(resolveStepDeadlines({}).sceneContent).toBeGreaterThanOrEqual(600_000);
+  });
+
+  it('lets a deployment override one step by name', () => {
+    const env = { [stepDeadlineEnvName('sceneContent')]: '900000' };
+    const resolved = resolveStepDeadlines(env);
+    expect(stepDeadlineEnvName('sceneContent')).toBe('STEP_DEADLINE_SCENE_CONTENT_MS');
+    expect(resolved.sceneContent).toBe(900_000);
+    // Untouched steps keep their budget.
+    expect(resolved.sceneActions).toBe(resolveStepDeadlines({}).sceneActions);
+  });
+
+  it('ignores an override that would disable the deadline', () => {
+    const base = resolveStepDeadlines({});
+    for (const bad of ['', 'abc', '0', '-1']) {
+      const resolved = resolveStepDeadlines({ STEP_DEADLINE_SCENE_CONTENT_MS: bad });
+      expect(resolved.sceneContent).toBe(base.sceneContent);
+    }
+  });
+});
 
 describe('step deadlines', () => {
   it('fails a call that outlives its budget, even one that ignores its signal', async () => {

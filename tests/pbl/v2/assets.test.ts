@@ -14,6 +14,6 @@ describe('PBL v2 static assets', () => {
   });
 
   test('ships the OpenMAIC mark used in the workspace header', () => {
-    expectPng('public/openmaic-mark.png');
+    expectPng('public/brand-mark.png');
   });
 });

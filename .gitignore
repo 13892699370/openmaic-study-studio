@@ -106,3 +106,6 @@ render-service/.owner-bound-parent-*/
 /.brand-backup/
 /.codegraph/
 /.next.broken/
+
+# 上游演示素材（README 用，不参与构建，不进入提交包）
+/assets/

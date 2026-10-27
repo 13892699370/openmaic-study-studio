@@ -114,6 +114,17 @@ slots:
   #   model: anthropic:claude-sonnet-4-6
   #   fallback: openai:gpt-5.4-mini
 
+  # Interactive scenes are the one content slot that emits a whole runnable
+  # page (HTML + canvas + script) in a single response, so they are far more
+  # demanding than a slide outline. On a small fast model the response is
+  # truncated or refused, which surfaces as repeated HTTP 500 / step timeouts
+  # and finally a "generation failed" scene. Pin this slot to a stronger model
+  # while the short-output slots stay on the fast one; a fallback covers the
+  # remaining failures.
+  # course.content.interactive:
+  #   model: anthropic:claude-sonnet-4-6
+  #   fallback: openai:gpt-5.4-mini
+
   # The Pro workbench agent needs a model with tool calling. It may set
   # thinking.mode but not thinking.effort; an effort set on llm is dropped
   # for the agent.

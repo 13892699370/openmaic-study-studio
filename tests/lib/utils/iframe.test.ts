@@ -142,4 +142,92 @@ describe('patchHtmlForIframe', () => {
     handlers.message({ data: { foo: 1 } });
     expect(posts).toHaveLength(4);
   });
+
+  it('injects the DOM token tolerance shim before the storage shim and page scripts', () => {
+    const html =
+      '<!DOCTYPE html><html><head><script>el.classList.add(maybeEmpty)</script></head><body></body></html>';
+    const out = patchHtmlForIframe(html);
+    expect(out).toContain('data-iframe-domtoken-shim');
+    expect(out.indexOf('data-iframe-error-shim')).toBeLessThan(
+      out.indexOf('data-iframe-domtoken-shim'),
+    );
+    expect(out.indexOf('data-iframe-domtoken-shim')).toBeLessThan(
+      out.indexOf('el.classList.add'),
+    );
+  });
+
+  it('the DOM token shim ignores empty tokens instead of throwing', () => {
+    const out = patchHtmlForIframe('<html><head></head><body></body></html>');
+    const shim = out.match(/<script data-iframe-domtoken-shim>([\s\S]*?)<\/script>/)?.[1];
+    expect(shim).toBeTruthy();
+
+    // Minimal DOMTokenList stand-in over a Set, mirroring the spec's throwing
+    // behaviour so the shim's narrowing is observable.
+    class StrictTokenList {
+      private readonly set = new Set<string>();
+      add(...tokens: unknown[]) {
+        for (const token of tokens) this.reject(token);
+        for (const token of tokens) this.set.add(token as string);
+      }
+      remove(...tokens: unknown[]) {
+        for (const token of tokens) this.reject(token);
+        for (const token of tokens) this.set.delete(token as string);
+      }
+      contains(token: unknown) {
+        this.reject(token);
+        return this.set.has(token as string);
+      }
+      toggle(token: unknown, force?: boolean) {
+        this.reject(token);
+        const has = this.set.has(token as string);
+        const next = force === undefined ? !has : force;
+        if (next) this.set.add(token as string);
+        else this.set.delete(token as string);
+        return next;
+      }
+      toString() {
+        return [...this.set].join(' ');
+      }
+      private reject(token: unknown) {
+        if (typeof token !== 'string' || token.length === 0)
+          throw new SyntaxError('The token provided must not be empty.');
+        if (/[\t\n\f\r ]/.test(token))
+          throw new SyntaxError('The token provided must not contain spaces.');
+      }
+    }
+
+    const win: Record<string, unknown> = { DOMTokenList: StrictTokenList };
+    // Sanity: the unwrapped list throws, which is exactly the crash the shim
+    // exists to prevent. Asserted BEFORE installing the shim, since it patches
+    // the prototype in place.
+    const raw = new StrictTokenList();
+    expect(() => raw.add('')).toThrow(SyntaxError);
+    expect(() => raw.add('a b')).toThrow(SyntaxError);
+
+    new Function('window', 'document', shim as string)(win, { addEventListener: () => {} });
+
+    const list = new (win.DOMTokenList as typeof StrictTokenList)();
+    list.add('', 'active');
+    expect(list.toString()).toBe('active');
+    list.remove('');
+    expect(list.toString()).toBe('active');
+    expect(list.contains('')).toBe(false);
+    expect(list.toggle('')).toBe(false);
+
+    // WebIDL stringifies arguments, so undefined/null become real class names —
+    // the shim must keep that behaviour rather than swallowing the argument.
+    list.add(undefined as unknown as string);
+    expect(list.toString()).toBe('active undefined');
+    list.remove(undefined as unknown as string);
+
+    // Whitespace-separated tokens are split rather than rejected.
+    list.add('a b');
+    expect(list.toString()).toBe('active a b');
+    expect(list.contains('a b')).toBe(true);
+    expect(list.contains('')).toBe(false);
+
+    // A force flag still wins over the token, as the spec's toggle does.
+    expect(list.toggle('', true)).toBe(false);
+    expect(list.toString()).toBe('active a b');
+  });
 });

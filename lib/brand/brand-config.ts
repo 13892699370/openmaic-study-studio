@@ -29,6 +29,6 @@ export const DEFAULT_BRAND: BrandConfig = {
   shortName: 'Study studio',
   logoSrc: '/logo-horizontal.png',
   logoHasWordmark: true,
-  markSrc: '/openmaic-mark.png',
+  markSrc: '/brand-mark.png',
   themeColor: '#722ed1',
 };

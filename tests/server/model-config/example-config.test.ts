@@ -1,5 +1,5 @@
 /**
- * The shipped example (`openmaic.example.yml`) and every `openmaic.yml` block
+ * The shipped example (`model-config.example.yml`) and every `openmaic.yml` block
  * in the documentation and READMEs must parse with the real schema, so the
  * examples cannot drift from what the server accepts.
  */
@@ -43,9 +43,9 @@ function openmaicBlocks(file: string, { titled }: { titled: boolean }): Block[] 
 }
 
 describe('openmaic.yml examples', () => {
-  it('openmaic.example.yml parses with the schema', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'openmaic.example.yml'), 'utf-8');
-    const config = parseModelConfig(text, { file: 'openmaic.example.yml', env: envFor(text) });
+  it('model-config.example.yml parses with the schema', () => {
+    const text = fs.readFileSync(path.join(ROOT, 'model-config.example.yml'), 'utf-8');
+    const config = parseModelConfig(text, { file: 'model-config.example.yml', env: envFor(text) });
     expect(config.slots?.llm).toBeDefined();
     expect(Object.keys(config.providers ?? {})).not.toHaveLength(0);
   });

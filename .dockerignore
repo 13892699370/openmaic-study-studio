@@ -22,7 +22,7 @@ dist
 !.env.example
 server-providers*.yml
 # model configuration: may hold inline keys; mounted at run time, never baked in
-openmaic.yml
+/*.yml
 
 # misc
 assets

@@ -46,6 +46,97 @@ const STORAGE_SHIM = `<script data-iframe-storage-shim>
 </script>`;
 
 /**
+ * Tolerance layer for `DOMTokenList` token arguments, injected before any page
+ * script.
+ *
+ * `classList.add('')`, `.remove('')`, `.toggle('')` and `.contains('')` throw a
+ * `SyntaxError` per spec ("The token provided must not be empty"), and
+ * `.add('a b')` / `.contains('a b')` throw "must not contain at least one
+ * whitespace". Generated interactive pages routinely build a class token from a
+ * value that can legitimately be empty (`el.classList.add(activeClass)` where
+ * `activeClass` is '' for the resting state, or `'а' + kind` from optional data)
+ * — a pattern that is harmless in intent but aborts the whole widget on the
+ * first write. Because the throw happens inside the page's own script, the
+ * widget freezes mid-setup and the runtime-error banner replaces it.
+ *
+ * This shim narrows the throwing cases to a no-op for the empty-token case (the
+ * token contributes nothing to the class list either way, so skipping it cannot
+ * change the intended rendering) and splits whitespace-separated tokens the way
+ * the setters have always been specified to for the attribute path. Genuine
+ * errors from other APIs still propagate untouched.
+ *
+ * Deliberately conservative: only the class-token methods of `DOMTokenList` are
+ * wrapped, only for the empty/whitespace cases the spec rejects, and each call
+ * falls through to the original method whenever it can be handled normally.
+ */
+const DOM_TOKEN_TOLERANCE_SHIM = `<script data-iframe-domtoken-shim>
+(function () {
+  function install() {
+    if (window.__maicDomTokenToleranceInstalled) return true;
+    var proto = window.DOMTokenList && window.DOMTokenList.prototype;
+    if (!proto) return false;
+    window.__maicDomTokenToleranceInstalled = true;
+    var WHITESPACE = /[\\t\\n\\f\\r ]+/;
+    function coerce(token) {
+      // WebIDL converts every token argument to DOMString before validating it,
+      // so an undefined token really would become the class named "undefined".
+      return String(token);
+    }
+    function rejected(value) {
+      return value.length === 0 || WHITESPACE.test(value);
+    }
+    function split(value) {
+      return value.split(WHITESPACE).filter(function (t) { return t.length > 0; });
+    }
+    ['add', 'remove', 'toggle', 'contains'].forEach(function (name) {
+      var original = proto[name];
+      if (typeof original !== 'function') return;
+      proto[name] = function () {
+        if (name === 'add' || name === 'remove') {
+          for (var i = 0; i < arguments.length; i++) {
+            var value = coerce(arguments[i]);
+            if (!rejected(value)) original.call(this, value);
+            else {
+              var parts = split(value);
+              for (var p = 0; p < parts.length; p++) original.call(this, parts[p]);
+            }
+          }
+          return undefined;
+        }
+        var wanted = coerce(arguments[0]);
+        if (!rejected(wanted)) return original.apply(this, arguments);
+        var tokens = split(wanted);
+        if (name === 'contains') {
+          if (tokens.length === 0) return false;
+          for (var w = 0; w < tokens.length; w++) {
+            if (!original.call(this, tokens[w])) return false;
+          }
+          return true;
+        }
+        // toggle(token, force?)
+        // No tokens means there is nothing to switch on, so nothing changed:
+        // answer false rather than echoing the (meaningless) force flag.
+        if (tokens.length === 0) return false;
+        var result = false;
+        for (var t = 0; t < tokens.length; t++) {
+          result = original.call(this, tokens[t], arguments[1]);
+        }
+        return result;
+      };
+    });
+    return true;
+  }
+  // DOMTokenList exists in every supported browser; this retries only for the
+  // theoretical early-execution case and never masks a real failure.
+  if (!install()) {
+    try {
+      document.addEventListener('DOMContentLoaded', install, { once: true });
+    } catch (e) {}
+  }
+})();
+</script>`;
+
+/**
  * Runtime-error capture, injected as the VERY FIRST script so it observes errors
  * from the storage shim and every page script that follows. Generated interactive
  * pages frequently die on a runtime error (a `JSON.parse` of malformed config, a
@@ -409,7 +500,16 @@ export function patchHtmlForIframe(
 </style>`;
 
   const injection =
-    '\n' + ERROR_CAPTURE_SHIM + '\n' + ELEMENT_PICKER_SHIM + '\n' + STORAGE_SHIM + '\n' + iframeCss;
+    '\n' +
+    ERROR_CAPTURE_SHIM +
+    '\n' +
+    DOM_TOKEN_TOLERANCE_SHIM +
+    '\n' +
+    ELEMENT_PICKER_SHIM +
+    '\n' +
+    STORAGE_SHIM +
+    '\n' +
+    iframeCss;
 
   const patched = injectIntoDocumentHead(html, injection);
   // Body end, not head: the reader captures the scope element as it installs.

@@ -5,7 +5,7 @@ describe('DEFAULT_BRAND (single-brand build)', () => {
   it('uses the original product identity for full chrome', () => {
     expect(DEFAULT_BRAND.productName).toBe('OpenMAIC');
     expect(DEFAULT_BRAND.shortName).toBe('OpenMAIC');
-    expect(DEFAULT_BRAND.markSrc).toBe('/openmaic-mark.png');
+    expect(DEFAULT_BRAND.markSrc).toBe('/brand-mark.png');
     expect(DEFAULT_BRAND.themeColor).toBe('#722ed1');
   });
 
