@@ -35,6 +35,7 @@ import {
   type ToolSet,
 } from 'ai';
 import { streamLLM } from '@/lib/ai/llm';
+import { createSpecialTokenFilter } from '@/lib/ai/special-token-filter';
 import { preservesReasoningForModel } from '@/lib/ai/providers';
 import { normalizeUsage } from '@/lib/usage/normalize';
 import type { ThinkingConfig } from '@/lib/types/provider';
@@ -178,6 +179,10 @@ export function createPartMapper(
   // in arrival order instead of merging later text back into an earlier block.
   let active: { kind: 'text' | 'thinking'; index: number; buf: string } | null = null;
 
+  // Models that fall back to emitting their native tool-call template as text
+  // would otherwise reach the learner as raw markup (see the module doc).
+  const textFilter = createSpecialTokenFilter();
+
   const closeActive = () => {
     if (!active) return;
     if (active.kind === 'text') {
@@ -188,21 +193,27 @@ export function createPartMapper(
     active = null;
   };
 
+  const appendText = (delta: string): void => {
+    if (active?.kind !== 'text') {
+      closeActive();
+      const index = partial.content.length;
+      partial.content.push({ type: 'text', text: '' } satisfies TextContent);
+      active = { kind: 'text', index, buf: '' };
+      push({ type: 'text_start', contentIndex: index, partial });
+    }
+    active.buf += delta;
+    (partial.content[active.index] as TextContent).text = active.buf;
+    push({ type: 'text_delta', contentIndex: active.index, delta, partial });
+  };
+
   const handle = (part: Record<string, unknown>): void => {
     const type = part.type as string;
     if (type === 'text-delta' || type === 'text') {
-      const delta = (part.text ?? part.delta ?? part.textDelta ?? '') as string;
+      const raw = (part.text ?? part.delta ?? part.textDelta ?? '') as string;
+      if (!raw) return;
+      const delta = textFilter.push(raw);
       if (!delta) return;
-      if (active?.kind !== 'text') {
-        closeActive();
-        const index = partial.content.length;
-        partial.content.push({ type: 'text', text: '' } satisfies TextContent);
-        active = { kind: 'text', index, buf: '' };
-        push({ type: 'text_start', contentIndex: index, partial });
-      }
-      active.buf += delta;
-      (partial.content[active.index] as TextContent).text = active.buf;
-      push({ type: 'text_delta', contentIndex: active.index, delta, partial });
+      appendText(delta);
     } else if (type === 'reasoning-delta' || type === 'reasoning') {
       const delta = (part.text ?? part.delta ?? '') as string;
       if (!delta) return;
@@ -242,6 +253,9 @@ export function createPartMapper(
   };
 
   const finalize = (): void => {
+    // A control token cut off at the very end of the stream is still buffered.
+    const tail = textFilter.flush();
+    if (tail) appendText(tail);
     // Close whatever block is still open (the stream may omit a trailing end).
     closeActive();
   };
