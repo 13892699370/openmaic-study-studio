@@ -143,6 +143,34 @@ describe('patchHtmlForIframe', () => {
     expect(posts).toHaveLength(4);
   });
 
+  it('the error shim ignores benign ResizeObserver delivery warnings', () => {
+    // Generated widgets resize on every animation frame; Chrome reports the late
+    // ResizeObserver delivery as an `error` event even though nothing is broken.
+    // Reporting it would raise the "interactive did not run" banner on a healthy
+    // page, so the shim drops these two message shapes.
+    const out = patchHtmlForIframe('<html><head></head><body></body></html>');
+    const shim = out.match(/<script data-iframe-error-shim>([\s\S]*?)<\/script>/)?.[1];
+    const posts: Array<[Record<string, unknown>, string]> = [];
+    const handlers: Record<string, (e: unknown) => void> = {};
+    const win = {
+      parent: { postMessage: (m: Record<string, unknown>, o: string) => posts.push([m, o]) },
+      addEventListener: (t: string, cb: (e: unknown) => void) => {
+        handlers[t] = cb;
+      },
+      console: { error: (..._args: unknown[]) => {} },
+    };
+    new Function('window', shim as string)(win);
+
+    handlers.error({ message: 'ResizeObserver loop completed with undelivered notifications.' });
+    handlers.error({ message: 'ResizeObserver loop limit exceeded' });
+    expect(posts).toHaveLength(0);
+
+    // A real failure still gets through, including one that merely mentions it.
+    handlers.error({ message: 'Uncaught TypeError: cannot read x (about:srcdoc:12)' });
+    expect(posts).toHaveLength(1);
+    expect(String(posts[0][0].message)).toContain('TypeError');
+  });
+
   it('injects the DOM token tolerance shim before the storage shim and page scripts', () => {
     const html =
       '<!DOCTYPE html><html><head><script>el.classList.add(maybeEmpty)</script></head><body></body></html>';

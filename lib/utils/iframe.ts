@@ -177,8 +177,24 @@ const ERROR_CAPTURE_SHIM = `<script data-iframe-error-shim>
       for (var i = 0; i < buffer.length; i++) emit(buffer[i][0], buffer[i][1]);
     }
   });
+  // Browsers fire these as error events even though nothing is broken: a
+  // ResizeObserver callback that resizes its own target can only be delivered on
+  // the next frame, and Chrome reports the late delivery as an error. Generated
+  // widgets resize on every animation frame, so without this filter a perfectly
+  // healthy page shows the "this interactive did not run" banner.
+  var BENIGN = [
+    'ResizeObserver loop completed with undelivered notifications',
+    'ResizeObserver loop limit exceeded'
+  ];
+  function benign(message) {
+    for (var i = 0; i < BENIGN.length; i++) {
+      if (message.indexOf(BENIGN[i]) !== -1) return true;
+    }
+    return false;
+  }
   window.addEventListener('error', function (e) {
     if (e && e.message) {
+      if (benign(String(e.message))) return;
       post('error', e.message + (e.filename ? ' (' + e.filename + ':' + (e.lineno || 0) + ')' : ''));
     } else if (e && e.target && (e.target.src || e.target.href)) {
       post('resource', 'Failed to load resource: ' + (e.target.src || e.target.href));
